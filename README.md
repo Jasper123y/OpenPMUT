@@ -6,7 +6,7 @@ A standalone desktop application for PMUT (Piezoelectric Micromachined Ultrasoni
 
 ## Application Screenshots
 
-### Step 1 — Define Input Geometry and Array Parameters
+### Step 1 — Define Parameters
 Configure the PMUT array geometry, material properties, and simulation parameters.
 
 ![Input — Geometry & Parameter Setup](docs/Input.png)
