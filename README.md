@@ -4,6 +4,25 @@ A standalone desktop application for PMUT (Piezoelectric Micromachined Ultrasoni
 
 ---
 
+## Application Screenshots
+
+### Step 1 — Define Input Geometry
+Configure the PMUT array geometry, material properties, and simulation parameters.
+
+![Input — Geometry & Parameter Setup](docs/Input.png)
+
+### Step 2 — Run Simulation
+Execute the ECM simulation pipeline with GPU acceleration and monitor progress in real time.
+
+![Running — Simulation in Progress](docs/Running.png)
+
+### Step 3 — View Output Results
+Visualize simulation results including frequency response, vibration modes, and acoustic output.
+
+![Output — Simulation Results](docs/Output.png)
+
+---
+
 ## Quick Start
 
 ```bash
