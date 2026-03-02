@@ -26,8 +26,6 @@ Visualize simulation results including frequency response, vibration modes, and 
 ## Quick Start
 
 ```bash
-unzip OpenPMUT-Desktop.zip
-cd OpenPMUT-Desktop
 ./openpmut
 ```
 
