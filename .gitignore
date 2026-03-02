@@ -37,7 +37,6 @@ python-backend/models/*.onnx
 python-backend/eigenprediction/models/*.pt
 python-backend/eigenprediction/models/*.pth
 python-backend/eigenprediction/models/*.onnx
-python-backend/ECM/
 
 # Environment variables
 .env
