@@ -6,8 +6,6 @@ yarn-error.log*
 
 # Build outputs
 dist/
-dist-electron/
-dist-renderer/
 release/
 
 # Python
@@ -29,8 +27,6 @@ pip-log.txt
 pip-delete-this-directory.txt
 
 # Python backend runtime files
-python-backend/uploads/
-python-backend/output/
 python-backend/models/*.pt
 python-backend/models/*.pth
 python-backend/models/*.onnx
