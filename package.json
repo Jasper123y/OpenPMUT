@@ -1,0 +1,115 @@
+{
+  "name": "openpmut-desktop",
+  "version": "1.0.0",
+  "description": "OpenPMUT — Standalone Desktop Application for PMUT Simulation using Physics-Informed Neural Networks",
+  "main": "dist-electron/main.js",
+  "author": "OpenPMUT Team",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"npm run dev:renderer\" \"npm run dev:electron\"",
+    "dev:renderer": "vite",
+    "dev:electron": "tsc -p tsconfig.electron.json && electron .",
+    "build:renderer": "tsc -p tsconfig.json && vite build",
+    "build:electron": "tsc -p tsconfig.electron.json",
+    "build": "npm run build:renderer && npm run build:electron",
+    "package": "npm run build && electron-builder --linux",
+    "package:appimage": "npm run build && electron-builder --linux AppImage",
+    "package:deb": "npm run build && electron-builder --linux deb",
+    "package:rpm": "npm run build && electron-builder --linux rpm",
+    "package:all": "npm run build && electron-builder --linux AppImage deb rpm",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "dependencies": {
+    "axios": "^1.6.2",
+    "clsx": "^2.0.0",
+    "electron-is-dev": "^2.0.0",
+    "lucide-react": "^0.294.0",
+    "plotly.js": "^2.27.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-plotly.js": "^2.6.0",
+    "react-router-dom": "^6.20.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.43",
+    "@types/react-dom": "^18.2.17",
+    "@types/react-plotly.js": "^2.6.3",
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.4.16",
+    "concurrently": "^8.2.2",
+    "electron": "^28.1.0",
+    "electron-builder": "^24.9.1",
+    "postcss": "^8.4.32",
+    "tailwindcss": "^3.3.6",
+    "typescript": "^5.2.2",
+    "vite": "^5.4.21"
+  },
+  "build": {
+    "appId": "com.openpmut.desktop",
+    "productName": "OpenPMUT",
+    "copyright": "Copyright © 2024-2026 OpenPMUT Team",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist-electron/**/*",
+      "dist-renderer/**/*",
+      "python-backend/**/*",
+      "!python-backend/**/__pycache__/**",
+      "!python-backend/**/node_modules/**"
+    ],
+    "extraResources": [
+      {
+        "from": "python-backend",
+        "to": "python-backend",
+        "filter": [
+          "**/*",
+          "!**/__pycache__/**",
+          "!**/*.pyc"
+        ]
+      }
+    ],
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": ["x64"]
+        },
+        {
+          "target": "deb",
+          "arch": ["x64"]
+        },
+        {
+          "target": "rpm",
+          "arch": ["x64"]
+        }
+      ],
+      "category": "Science",
+      "icon": "assets/icons",
+      "synopsis": "PMUT Simulation Desktop Application",
+      "description": "Standalone desktop application for Piezoelectric Micromachined Ultrasonic Transducer (PMUT) simulation using Physics-Informed Neural Networks and Equivalent Circuit Modeling.",
+      "desktop": {
+        "StartupWMClass": "OpenPMUT",
+        "MimeType": "text/plain"
+      }
+    },
+    "appImage": {
+      "artifactName": "OpenPMUT-${version}-${arch}.AppImage"
+    },
+    "deb": {
+      "depends": [
+        "python3",
+        "python3-pip"
+      ],
+      "artifactName": "openpmut_${version}_${arch}.deb"
+    },
+    "rpm": {
+      "depends": [
+        "python3",
+        "python3-pip"
+      ],
+      "artifactName": "openpmut-${version}.${arch}.rpm"
+    }
+  }
+}

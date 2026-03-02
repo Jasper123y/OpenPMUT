@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e40af"/>
+      <stop offset="100%" style="stop-color:#3b82f6"/>
+    </linearGradient>
+    <linearGradient id="wave" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#93c5fd"/>
+      <stop offset="100%" style="stop-color:#dbeafe"/>
+    </linearGradient>
+  </defs>
+  <!-- Background rounded square -->
+  <rect x="16" y="16" width="480" height="480" rx="80" ry="80" fill="url(#bg)"/>
+  <!-- PMUT membrane shape (circular) -->
+  <ellipse cx="256" cy="240" rx="140" ry="50" fill="none" stroke="#93c5fd" stroke-width="6"/>
+  <ellipse cx="256" cy="240" rx="140" ry="50" fill="#1e40af" opacity="0.3"/>
+  <!-- Ultrasonic wave arcs -->
+  <path d="M 160 310 Q 256 260, 352 310" fill="none" stroke="#93c5fd" stroke-width="4" opacity="0.9"/>
+  <path d="M 140 340 Q 256 280, 372 340" fill="none" stroke="#93c5fd" stroke-width="3.5" opacity="0.7"/>
+  <path d="M 120 370 Q 256 300, 392 370" fill="none" stroke="#93c5fd" stroke-width="3" opacity="0.5"/>
+  <path d="M 100 400 Q 256 320, 412 400" fill="none" stroke="#93c5fd" stroke-width="2.5" opacity="0.3"/>
+  <!-- Text "OP" for OpenPMUT -->
+  <text x="256" y="190" font-family="Arial, Helvetica, sans-serif" font-size="72" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="middle">Open</text>
+  <text x="256" y="248" font-family="Arial, Helvetica, sans-serif" font-size="52" font-weight="bold" fill="#93c5fd" text-anchor="middle" dominant-baseline="middle">PMUT</text>
+  <!-- Frequency response hint (small sine wave) -->
+  <path d="M 170 440 C 190 420, 210 460, 230 440 C 250 420, 270 460, 290 440 C 310 420, 330 460, 350 440" fill="none" stroke="white" stroke-width="3" opacity="0.6"/>
+</svg>

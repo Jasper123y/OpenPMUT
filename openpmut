@@ -1,0 +1,838 @@
+#!/usr/bin/env bash
+# ═══════════════════════════════════════════════════════════════════
+#  OpenPMUT Desktop — Launcher  (V1.0)
+#
+#  Usage:
+#    ./openpmut                          # Auto-detect / setup Python
+#    ./openpmut --python /path/to/python # Specify Python explicitly
+#    ./openpmut --port 19000             # Custom backend port
+#    ./openpmut --version                # Show version
+#    ./openpmut --reset                  # Re-select conda/Python env
+#    ./openpmut --help
+#
+#  First run: will guide you through conda/Python environment setup.
+#  Subsequent runs: remembers your Python and launches silently.
+#  Closing the window kills the backend and exits cleanly.
+# ═══════════════════════════════════════════════════════════════════
+set -euo pipefail
+
+VERSION="1.0"
+
+# Resolve symlinks so SCRIPT_DIR is always the real app directory
+SOURCE="${BASH_SOURCE[0]}"
+while [[ -L "$SOURCE" ]]; do
+  DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ "$SOURCE" != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+SCRIPT_DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
+
+# ── Defaults ──
+PYTHON_CMD=""
+BACKEND_PORT=18765
+LOG_DIR="$HOME/.openpmut"
+LOG_FILE="$LOG_DIR/launch.log"
+SAVED_PYTHON_FILE="$SCRIPT_DIR/.python_path"
+CONDA_INSTALL_DIR="$HOME/miniconda3"
+ENV_NAME="openpmut"
+RESET_ENV=false
+
+# Required Python packages (covers backend + ECM + eigenmode_solver + eigenprediction)
+REQUIRED_PACKAGES=("fastapi" "uvicorn" "torch" "numpy" "scipy" "pandas" "matplotlib" "imageio" "pydantic_settings")
+
+# ── Parse arguments ──
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --python)   PYTHON_CMD="$2"; shift 2 ;;
+    --port)     BACKEND_PORT="$2"; shift 2 ;;
+    --reset)    RESET_ENV=true; shift ;;
+    --version|-v)
+      echo "OpenPMUT Desktop V${VERSION}"
+      exit 0
+      ;;
+    --help|-h)
+      echo ""
+      echo "  ╔══════════════════════════════════════════╗"
+      echo "  ║     OpenPMUT Desktop V${VERSION} — Launcher     ║"
+      echo "  ╚══════════════════════════════════════════╝"
+      echo ""
+      echo "  Usage:  ./openpmut [OPTIONS]"
+      echo ""
+      echo "  Options:"
+      echo "    --python PATH   Path to Python 3.10+ with PyTorch, NumPy, etc."
+      echo "    --port   PORT   Backend port (default: 18765)"
+      echo "    --reset          Re-select conda module and Python environment"
+      echo "    --version        Show version"
+      echo "    --help          Show this help"
+      echo ""
+      echo "  First run will guide you through environment setup."
+      echo "  Logs: ~/.openpmut/launch.log"
+      echo ""
+      exit 0
+      ;;
+    *)  echo "Unknown option: $1"; exit 1 ;;
+  esac
+done
+
+# ── Logging setup ──
+mkdir -p "$LOG_DIR"
+exec > >(tee -a "$LOG_FILE") 2>&1
+echo ""
+echo "═══════════════════════════════════════════"
+echo "  OpenPMUT launch — $(date)"
+echo "═══════════════════════════════════════════"
+
+# ════════════════════════════════════════════════════════════════════
+#  CONDA / PYTHON ENVIRONMENT MANAGEMENT
+# ════════════════════════════════════════════════════════════════════
+
+# ── Try to find and load conda ──
+ensure_conda() {
+  # Already available?
+  if command -v conda &>/dev/null; then
+    return 0
+  fi
+
+  echo "[Setup] conda not found in PATH. Searching..." >&2
+
+  # ── Method 1: Environment Modules (HPC clusters) ──
+  if command -v module &>/dev/null; then
+    echo "[Setup] Environment Modules system detected." >&2
+    echo "" >&2
+
+    # Collect ALL available anaconda/miniconda/conda modules
+    local ALL_MODULES=()
+    for pattern in anaconda miniconda conda; do
+      local found
+      found=$(module avail "$pattern" 2>&1 | grep -oP "${pattern}/[^\s()]+") || true
+      if [[ -n "$found" ]]; then
+        while IFS= read -r m; do
+          ALL_MODULES+=("$m")
+        done <<< "$found"
+      fi
+    done
+
+    if [[ ${#ALL_MODULES[@]} -gt 0 ]]; then
+      # Sort: anaconda versions descending, then miniconda versions descending
+      local ANACONDA_MODS=() MINICONDA_MODS=() OTHER_MODS=()
+      for m in "${ALL_MODULES[@]}"; do
+        if [[ "$m" == anaconda/* ]]; then
+          ANACONDA_MODS+=("$m")
+        elif [[ "$m" == miniconda/* ]]; then
+          MINICONDA_MODS+=("$m")
+        else
+          OTHER_MODS+=("$m")
+        fi
+      done
+
+      # Build display list: anaconda (newest first), then miniconda (newest first), then others
+      local SORTED_MODULES=()
+      # Reverse anaconda (newest first)
+      for (( i=${#ANACONDA_MODS[@]}-1; i>=0; i-- )); do
+        SORTED_MODULES+=("${ANACONDA_MODS[$i]}")
+      done
+      # Reverse miniconda (newest first)
+      for (( i=${#MINICONDA_MODS[@]}-1; i>=0; i-- )); do
+        SORTED_MODULES+=("${MINICONDA_MODS[$i]}")
+      done
+      for m in "${OTHER_MODS[@]}"; do
+        SORTED_MODULES+=("$m")
+      done
+
+      echo "  ┌───────────────────────────────────────────────────┐" >&2
+      echo "  │  Available conda modules:                         │" >&2
+      echo "  │                                                   │" >&2
+      local rec_shown=false
+      for i in "${!SORTED_MODULES[@]}"; do
+        local label="${SORTED_MODULES[$i]}"
+        local tag=""
+        if ! $rec_shown; then
+          tag=" ← recommended"
+          rec_shown=true
+        fi
+        printf "  │    %2d) %-34s%s│\n" "$((i+1))" "$label" "$tag" >&2
+      done
+      echo "  │                                                   │" >&2
+      echo "  │     c) Enter a custom module load command         │" >&2
+      echo "  │     s) Skip — search local conda installs        │" >&2
+      echo "  └───────────────────────────────────────────────────┘" >&2
+      echo "" >&2
+      echo "  To load a specific module manually, run:" >&2
+      echo "    module load <module_name>" >&2
+      echo "" >&2
+      read -rp "  Choose [1-${#SORTED_MODULES[@]}, c, or s]: " answer </dev/tty
+
+      if [[ "$answer" == "c" || "$answer" == "C" ]]; then
+        echo "" >&2
+        read -rp "  Enter module name to load (e.g. anaconda/2022.05): " custom_mod </dev/tty
+        if [[ -n "$custom_mod" ]]; then
+          echo "[Setup] Loading module: $custom_mod" >&2
+          module load "$custom_mod" 2>&1
+          if command -v conda &>/dev/null; then
+            echo "[Setup] conda loaded via module: $(conda --version 2>&1)" >&2
+            return 0
+          else
+            echo "[Setup] module loaded but conda command still not available." >&2
+          fi
+        fi
+      elif [[ "$answer" == "s" || "$answer" == "S" ]]; then
+        echo "[Setup] Skipping modules, searching local installs..." >&2
+      elif [[ "$answer" =~ ^[0-9]+$ ]] && (( answer >= 1 && answer <= ${#SORTED_MODULES[@]} )); then
+        local idx=$((answer - 1))
+        local chosen="${SORTED_MODULES[$idx]}"
+        echo "[Setup] Loading module: $chosen" >&2
+        module load "$chosen" 2>&1
+        if command -v conda &>/dev/null; then
+          echo "[Setup] conda loaded via module: $(conda --version 2>&1)" >&2
+          return 0
+        else
+          echo "[Setup] module loaded but conda command still not available." >&2
+        fi
+      else
+        echo "[Setup] Invalid choice. Searching local installs..." >&2
+      fi
+      echo "" >&2
+    fi
+  fi
+
+  # ── Method 2: Common conda install paths (conda.sh) ──
+  local CONDA_PATHS=(
+    "$HOME/miniconda3/etc/profile.d/conda.sh"
+    "$HOME/anaconda3/etc/profile.d/conda.sh"
+    "$HOME/miniforge3/etc/profile.d/conda.sh"
+    "$HOME/.conda/etc/profile.d/conda.sh"
+    "/opt/conda/etc/profile.d/conda.sh"
+    "/usr/local/miniconda3/etc/profile.d/conda.sh"
+    "/usr/local/anaconda3/etc/profile.d/conda.sh"
+  )
+
+  for cpath in "${CONDA_PATHS[@]}"; do
+    if [[ -f "$cpath" ]]; then
+      echo "[Setup] Found conda at: $cpath" >&2
+      source "$cpath"
+      if command -v conda &>/dev/null; then
+        echo "[Setup] conda loaded successfully: $(conda --version 2>&1)" >&2
+        return 0
+      fi
+    fi
+  done
+
+  # ── Method 3: conda not found anywhere — offer to install Miniconda ──
+  echo "" >&2
+  echo "  ┌───────────────────────────────────────────────────┐" >&2
+  echo "  │  conda is not installed on this system.           │" >&2
+  echo "  │                                                   │" >&2
+  echo "  │  OpenPMUT needs Python with PyTorch and other     │" >&2
+  echo "  │  scientific packages. The easiest way is to       │" >&2
+  echo "  │  install Miniconda (lightweight conda).           │" >&2
+  echo "  │                                                   │" >&2
+  echo "  │  Install location: $CONDA_INSTALL_DIR" >&2
+  echo "  └───────────────────────────────────────────────────┘" >&2
+  echo "" >&2
+  read -rp "  Install Miniconda now? [y/N] " answer </dev/tty
+  if [[ "${answer,,}" != "y" ]]; then
+    echo "" >&2
+    echo "  Aborted. You can install conda manually or run:" >&2
+    echo "    ./openpmut --python /path/to/python" >&2
+    echo "" >&2
+    exit 1
+  fi
+
+  echo "" >&2
+  echo "[Setup] Downloading Miniconda..." >&2
+  local INSTALLER="/tmp/miniconda_installer.sh"
+  curl -fsSL "https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh" -o "$INSTALLER"
+  echo "[Setup] Installing Miniconda to $CONDA_INSTALL_DIR ..." >&2
+  bash "$INSTALLER" -b -p "$CONDA_INSTALL_DIR"
+  rm -f "$INSTALLER"
+
+  # Load the newly installed conda
+  source "$CONDA_INSTALL_DIR/etc/profile.d/conda.sh"
+  if ! command -v conda &>/dev/null; then
+    echo "ERROR: Miniconda installation failed." >&2
+    exit 1
+  fi
+  echo "[Setup] Miniconda installed successfully: $(conda --version 2>&1)" >&2
+  echo "" >&2
+  echo "  ┌───────────────────────────────────────────────────┐" >&2
+  echo "  │  TIP: Add this to your ~/.bashrc so conda is     │" >&2
+  echo "  │  always available:                                │" >&2
+  echo "  │                                                   │" >&2
+  echo "  │  eval \"\$($CONDA_INSTALL_DIR/bin/conda shell.bash hook)\"" >&2
+  echo "  └───────────────────────────────────────────────────┘" >&2
+  echo "" >&2
+}
+
+# ── Check if a Python has all required packages (FAST: file-based check) ──
+# Uses site-packages directory listing instead of importing (torch import ~4s)
+check_python_packages_fast() {
+  local py="$1"
+  local site_dir
+  site_dir=$($py -c "import site; print(site.getsitepackages()[0])" 2>/dev/null) || return 1
+  [[ -z "$site_dir" ]] && return 1
+
+  for pkg in fastapi uvicorn torch numpy scipy pandas matplotlib imageio pydantic_settings; do
+    if [[ ! -d "$site_dir/$pkg" ]] && [[ ! -f "$site_dir/$pkg.py" ]]; then
+      return 1
+    fi
+  done
+  return 0
+}
+
+# ── Check if a Python has all required packages (THOROUGH: actual import) ──
+check_python_packages() {
+  local py="$1"
+  $py -c "
+import sys
+missing = []
+for mod in ['fastapi', 'uvicorn', 'torch', 'numpy', 'scipy', 'pandas', 'matplotlib', 'imageio', 'pydantic_settings']:
+    try: __import__(mod)
+    except ImportError: missing.append(mod)
+if missing:
+    print('Missing: ' + ', '.join(missing), file=sys.stderr)
+    sys.exit(1)
+" 2>/dev/null
+}
+
+# ── List missing packages for a Python (fast file-based) ──
+list_missing_packages() {
+  local py="$1"
+  local site_dir
+  site_dir=$($py -c "import site; print(site.getsitepackages()[0])" 2>/dev/null) || { echo "unknown"; return; }
+  [[ -z "$site_dir" ]] && { echo "unknown"; return; }
+
+  local missing=()
+  for pkg in fastapi uvicorn torch numpy scipy pandas matplotlib imageio pydantic_settings; do
+    if [[ ! -d "$site_dir/$pkg" ]] && [[ ! -f "$site_dir/$pkg.py" ]]; then
+      missing+=("$pkg")
+    fi
+  done
+  echo "${missing[*]}"
+}
+
+# ── Install missing packages into a conda env's Python ──
+install_missing_packages() {
+  local py="$1"
+  local missing
+  missing=$(list_missing_packages "$py")
+  [[ -z "$missing" ]] && return 0
+
+  echo "" >&2
+  echo "  Missing packages: $missing" >&2
+  echo "  Installing into the selected environment..." >&2
+  echo "" >&2
+
+  # Map module names to pip package names
+  local pip_pkgs=()
+  for pkg in $missing; do
+    case "$pkg" in
+      torch)    pip_pkgs+=("torch" "torchvision" "torchaudio") ;;
+      fastapi)  pip_pkgs+=("fastapi" "uvicorn[standard]" "pydantic" "pydantic-settings"
+                           "python-multipart" "aiofiles" "httpx" "python-jose[cryptography]") ;;
+      uvicorn)  pip_pkgs+=("uvicorn[standard]") ;;
+      pydantic_settings)  pip_pkgs+=("pydantic-settings") ;;
+      imageio)  pip_pkgs+=("imageio") ;;
+      *)        pip_pkgs+=("$pkg") ;;
+    esac
+  done
+
+  # Install torch with CUDA if needed
+  if [[ " $missing " == *" torch "* ]]; then
+    if command -v nvidia-smi &>/dev/null; then
+      echo "[Setup] NVIDIA GPU detected — installing PyTorch with CUDA..." >&2
+      $py -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121 2>&1 | tail -5 >&2 || \
+      $py -m pip install torch 2>&1 | tail -3 >&2
+      # Remove torch from pip_pkgs since we installed it specially
+      local filtered=()
+      for p in "${pip_pkgs[@]}"; do
+        [[ "$p" == "torch" || "$p" == "torchvision" || "$p" == "torchaudio" ]] && continue
+        filtered+=("$p")
+      done
+      pip_pkgs=("${filtered[@]}")
+    else
+      echo "" >&2
+      echo "  ┌───────────────────────────────────────────────────┐" >&2
+      echo "  │  WARNING: No NVIDIA GPU detected.                 │" >&2
+      echo "  │  OpenPMUT requires NVIDIA GPU with CUDA.          │" >&2
+      echo "  │  PyTorch will be installed but simulations may    │" >&2
+      echo "  │  not work without a GPU.                          │" >&2
+      echo "  └───────────────────────────────────────────────────┘" >&2
+      echo "" >&2
+    fi
+  fi
+
+  # Install remaining packages
+  if [[ ${#pip_pkgs[@]} -gt 0 ]]; then
+    echo "[Setup] Installing: ${pip_pkgs[*]}" >&2
+    $py -m pip install "${pip_pkgs[@]}" 2>&1 | tail -5 >&2
+  fi
+
+  # Install CuPy if GPU available
+  if command -v nvidia-smi &>/dev/null; then
+    echo "[Setup] Installing CuPy for GPU acceleration..." >&2
+    $py -m pip install cupy-cuda12x 2>&1 | tail -3 >&2 || echo "[Setup] CuPy install failed (non-critical)" >&2
+  fi
+
+  echo "" >&2
+}
+
+# ── Create the openpmut conda environment ──
+create_openpmut_env() {
+  echo "" >&2
+  echo "  ┌───────────────────────────────────────────────────┐" >&2
+  echo "  │  Creating conda environment: '$ENV_NAME'          │" >&2
+  echo "  │                                                   │" >&2
+  echo "  │  This will install:                               │" >&2
+  echo "  │    • Python 3.11                                  │" >&2
+  echo "  │    • PyTorch (with CUDA)                          │" >&2
+  echo "  │    • FastAPI, Uvicorn, NumPy, SciPy               │" >&2
+  echo "  │    • Pandas, Matplotlib, Imageio                   │" >&2
+  echo "  │    • pydantic-settings, aiofiles, httpx           │" >&2
+  echo "  │                                                   │" >&2
+  echo "  │  This may take 5-10 minutes on first run.         │" >&2
+  echo "  └───────────────────────────────────────────────────┘" >&2
+  echo "" >&2
+
+  # Check NVIDIA GPU first
+  if ! command -v nvidia-smi &>/dev/null; then
+    echo "" >&2
+    echo "  ┌───────────────────────────────────────────────────┐" >&2
+    echo "  │  ERROR: No NVIDIA GPU detected.                   │" >&2
+    echo "  │                                                   │" >&2
+    echo "  │  OpenPMUT currently requires an NVIDIA GPU with   │" >&2
+    echo "  │  CUDA support for simulation. CPU-only mode is    │" >&2
+    echo "  │  not supported.                                   │" >&2
+    echo "  │                                                   │" >&2
+    echo "  │  Please run on a machine with an NVIDIA GPU and   │" >&2
+    echo "  │  CUDA drivers installed.                          │" >&2
+    echo "  └───────────────────────────────────────────────────┘" >&2
+    echo "" >&2
+    exit 1
+  fi
+
+  echo "[Setup] Creating conda environment '$ENV_NAME' with Python 3.11..." >&2
+  conda create -n "$ENV_NAME" python=3.11 -y 2>&1 >&2
+
+  echo "[Setup] Activating '$ENV_NAME'..." >&2
+  conda activate "$ENV_NAME"
+
+  local env_py="$CONDA_PREFIX/bin/python"
+
+  echo "[Setup] NVIDIA GPU detected — installing PyTorch with CUDA..." >&2
+  $env_py -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121 2>&1 | tail -5 >&2 || \
+  $env_py -m pip install torch 2>&1 | tail -3 >&2
+
+  echo "[Setup] Installing other dependencies..." >&2
+  $env_py -m pip install fastapi uvicorn[standard] pydantic pydantic-settings numpy scipy \
+              pandas matplotlib imageio \
+              python-multipart aiofiles httpx python-jose[cryptography] 2>&1 | tail -5 >&2
+
+  # Optional: CuPy for GPU-accelerated ECM
+  echo "[Setup] Installing CuPy for GPU acceleration..." >&2
+  $env_py -m pip install cupy-cuda12x 2>&1 | tail -3 >&2 || echo "[Setup] CuPy install failed (non-critical)" >&2
+
+  echo "" >&2
+  echo "[Setup] Environment '$ENV_NAME' created successfully!" >&2
+  echo "" >&2
+
+  # Output the python path on stdout
+  echo "$env_py"
+}
+
+# ════════════════════════════════════════════════════════════════════
+#  FIND OR SETUP PYTHON
+#
+#  Flow:
+#    1. Explicit --python argument → use it directly
+#    2. Is `conda` command available? If not → ensure_conda()
+#    3. Scan ALL conda envs, show status for each
+#    4. Let user pick ANY env (recommended ones highlighted)
+#       - If chosen env has all packages → use it
+#       - If chosen env is missing packages → install them
+#    5. User can also choose to create new 'openpmut' env
+# ════════════════════════════════════════════════════════════════════
+
+find_or_setup_python() {
+  # NOTE: This function outputs the Python path on stdout (last line).
+  # All status/progress messages go to stderr so they're visible to the user
+  # even when stdout is captured by $(...).
+
+  # ── 1. Explicit --python argument ──
+  if [[ -n "$PYTHON_CMD" ]]; then
+    if [[ -x "$PYTHON_CMD" ]]; then
+      if ! check_python_packages_fast "$PYTHON_CMD"; then
+        echo "[!] Specified Python is missing some packages." >&2
+        local missing
+        missing=$(list_missing_packages "$PYTHON_CMD")
+        echo "    Missing: $missing" >&2
+        read -rp "  Install missing packages now? [Y/n] " answer </dev/tty
+        if [[ "${answer,,}" != "n" ]]; then
+          install_missing_packages "$PYTHON_CMD"
+        else
+          echo "ERROR: Cannot proceed without required packages." >&2
+          exit 1
+        fi
+      fi
+      echo "$PYTHON_CMD"
+      return 0
+    fi
+    echo "ERROR: Specified Python not found: $PYTHON_CMD" >&2
+    exit 1
+  fi
+
+  # ── 1b. Check saved Python from previous run ──
+  if [[ "$RESET_ENV" == false ]] && [[ -f "$SAVED_PYTHON_FILE" ]]; then
+    local saved_py
+    saved_py=$(cat "$SAVED_PYTHON_FILE" 2>/dev/null)
+    if [[ -n "$saved_py" ]] && [[ -x "$saved_py" ]]; then
+      if check_python_packages_fast "$saved_py"; then
+        local saved_ver
+        saved_ver=$("$saved_py" --version 2>&1 || echo "unknown")
+        echo "" >&2
+        echo "  Previously used Python environment found:" >&2
+        echo "    $saved_py  ($saved_ver)" >&2
+        echo "" >&2
+        echo "  ⚠  Press Enter (or Y) to continue with this environment." >&2
+        echo "     Only press 'n' if you need to switch to a different Python." >&2
+        echo "" >&2
+        read -rp "  Use this environment? [Y/n] " use_saved </dev/tty
+        if [[ "${use_saved,,}" != "n" ]]; then
+          echo "[✓] Using saved Python: $saved_py" >&2
+          echo "$saved_py"
+          return 0
+        else
+          echo "[Setup] Re-selecting environment..." >&2
+          rm -f "$SAVED_PYTHON_FILE"
+        fi
+      else
+        echo "[!] Saved Python ($saved_py) is missing packages. Re-selecting..." >&2
+        rm -f "$SAVED_PYTHON_FILE"
+      fi
+    else
+      echo "[!] Saved Python path is invalid. Re-selecting..." >&2
+      rm -f "$SAVED_PYTHON_FILE"
+    fi
+  fi
+  if [[ "$RESET_ENV" == true ]]; then
+    echo "[Setup] --reset flag: re-selecting environment..." >&2
+    rm -f "$SAVED_PYTHON_FILE"
+  fi
+
+  # ── 2. Make sure conda is available ──
+  echo "[Setup] Checking conda availability..." >&2
+  if ! command -v conda &>/dev/null; then
+    echo "[Setup] conda command not found." >&2
+    ensure_conda
+  fi
+
+  if ! command -v conda &>/dev/null; then
+    echo "ERROR: Could not load conda. Cannot proceed." >&2
+    exit 1
+  fi
+  echo "[✓] conda is available: $(conda --version 2>&1)" >&2
+
+  # ── 3. Scan ALL conda environments ──
+  echo "[Setup] Scanning conda environments..." >&2
+  echo "        (required: fastapi, uvicorn, torch, numpy, scipy, pandas, matplotlib, imageio, pydantic_settings)" >&2
+  echo "" >&2
+
+  local ENV_NAMES=()
+  local ENV_PATHS=()
+  local ENV_PYTHON=()
+  local ENV_STATUS=()   # "ok" or "missing: ..."
+  local RECOMMENDED=-1  # index of first suitable env
+
+  while IFS= read -r line; do
+    [[ "$line" =~ ^#.*$ ]] && continue
+    [[ -z "$line" ]] && continue
+
+    local env_path
+    env_path=$(echo "$line" | awk '{for(i=NF;i>=1;i--) if($i ~ /^\//) {print $i; exit}}')
+    [[ -z "$env_path" ]] && continue
+
+    local env_python="$env_path/bin/python"
+    [[ ! -x "$env_python" ]] && continue
+
+    local env_name
+    env_name=$(echo "$line" | awk '{print $1}')
+    [[ "$env_name" == "*" ]] && env_name="(base)"
+
+    ENV_NAMES+=("$env_name")
+    ENV_PATHS+=("$env_path")
+    ENV_PYTHON+=("$env_python")
+
+    if check_python_packages_fast "$env_python"; then
+      ENV_STATUS+=("ok")
+      [[ $RECOMMENDED -lt 0 ]] && RECOMMENDED=${#ENV_NAMES[@]}  # 1-based
+    else
+      local missing
+      missing=$(list_missing_packages "$env_python")
+      ENV_STATUS+=("missing: $missing")
+    fi
+  done < <(conda env list 2>/dev/null)
+
+  # ── 4. Display ALL environments with status ──
+  local total=${#ENV_NAMES[@]}
+
+  echo "  ┌───────────────────────────────────────────────────────────────┐" >&2
+  echo "  │  Conda environments:                                         │" >&2
+  echo "  │                                                              │" >&2
+  for i in "${!ENV_NAMES[@]}"; do
+    local num=$((i+1))
+    local name="${ENV_NAMES[$i]}"
+    local status="${ENV_STATUS[$i]}"
+    if [[ "$status" == "ok" ]]; then
+      local tag=""
+      [[ $num -eq $RECOMMENDED ]] && tag=" ← recommended"
+      printf "  │  %2d) [✓] %-30s all packages ok%s\n" "$num" "$name" "$tag" >&2
+    else
+      printf "  │  %2d) [✗] %-30s %s\n" "$num" "$name" "$status" >&2
+    fi
+  done
+  echo "  │                                                              │" >&2
+  if [[ $RECOMMENDED -lt 0 ]]; then
+    echo "  │   n) Create new '$ENV_NAME' conda env with all deps ← recommended │" >&2
+  else
+    echo "  │   n) Create new '$ENV_NAME' conda env with all dependencies  │" >&2
+  fi
+  echo "  │   q) Abort                                                   │" >&2
+  echo "  └───────────────────────────────────────────────────────────────┘" >&2
+  echo "" >&2
+
+  if [[ $RECOMMENDED -gt 0 ]]; then
+    echo "  Environments marked [✓] have all required packages." >&2
+    echo "  Environments marked [✗] are missing packages — they will be" >&2
+    echo "  installed automatically if you choose that environment." >&2
+  else
+    echo "  No environment has all required packages." >&2
+    echo "  → Recommended: press Enter to create a new '$ENV_NAME' env" >&2
+    echo "    or pick a number to install missing packages into it." >&2
+  fi
+  echo "" >&2
+
+  local default_hint=""
+  if [[ $RECOMMENDED -gt 0 ]]; then
+    default_hint=" (default: $RECOMMENDED)"
+  else
+    default_hint=" (default: n)"
+  fi
+  read -rp "  Choose [1-${total}, n, or q]${default_hint}: " choice </dev/tty
+
+  # Default: if user just presses Enter
+  if [[ -z "$choice" ]]; then
+    if [[ $RECOMMENDED -gt 0 ]]; then
+      choice=$RECOMMENDED
+    else
+      choice="n"
+    fi
+  fi
+
+  # ── Handle choice ──
+  if [[ "$choice" == "n" || "$choice" == "N" ]]; then
+    # Create new openpmut env
+    local new_py
+    new_py=$(create_openpmut_env)
+    echo "$new_py"
+    return 0
+  fi
+
+  if [[ "$choice" == "q" || "$choice" == "Q" ]]; then
+    echo "  Aborted." >&2
+    exit 1
+  fi
+
+  if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= total )); then
+    local idx=$((choice - 1))
+    local chosen_name="${ENV_NAMES[$idx]}"
+    local chosen_py="${ENV_PYTHON[$idx]}"
+    local chosen_status="${ENV_STATUS[$idx]}"
+
+    echo "[✓] Selected environment: $chosen_name" >&2
+
+    if [[ "$chosen_status" != "ok" ]]; then
+      # Missing packages — offer to install
+      local missing
+      missing=$(list_missing_packages "$chosen_py")
+      echo "" >&2
+      echo "  This environment is missing: $missing" >&2
+      echo "" >&2
+      read -rp "  Install missing packages into '$chosen_name'? [Y/n] " answer </dev/tty
+      if [[ "${answer,,}" != "n" ]]; then
+        # Activate the env so pip installs into the right place
+        conda activate "$chosen_name" 2>/dev/null || true
+        install_missing_packages "$chosen_py"
+        # Verify
+        if check_python_packages_fast "$chosen_py"; then
+          echo "[✓] All packages now installed in '$chosen_name'." >&2
+        else
+          local still_missing
+          still_missing=$(list_missing_packages "$chosen_py")
+          echo "[!] Some packages may still be missing: $still_missing" >&2
+          echo "    Proceeding anyway — the thorough check will verify." >&2
+        fi
+      else
+        echo "" >&2
+        echo "  Cannot proceed without required packages." >&2
+        echo "  You can install manually:" >&2
+        echo "    conda activate $chosen_name" >&2
+        echo "    pip install fastapi uvicorn torch numpy scipy pandas matplotlib imageio pydantic-settings" >&2
+        echo "    ./openpmut" >&2
+        echo "" >&2
+        exit 1
+      fi
+    fi
+
+    echo "$chosen_py"
+    return 0
+  fi
+
+  # Invalid input
+  echo "  Invalid choice. Aborting." >&2
+  exit 1
+}
+
+# ════════════════════════════════════════════════════════════════════
+#  MAIN LAUNCH SEQUENCE
+# ════════════════════════════════════════════════════════════════════
+
+# Find or set up Python
+PYTHON="$(find_or_setup_python | tail -1)"
+
+# Validate
+if [[ -z "$PYTHON" ]] || ! [[ -x "$PYTHON" || "$(command -v "$PYTHON" 2>/dev/null)" ]]; then
+  echo "ERROR: Could not determine a working Python. Exiting."
+  exit 1
+fi
+
+echo ""
+echo "  Python:  $PYTHON ($($PYTHON --version 2>&1))"
+echo "  Port:    $BACKEND_PORT"
+echo "  Dir:     $SCRIPT_DIR"
+echo ""
+
+# Thorough import-based verification on the selected Python
+echo -n "[→] Verifying packages (importing torch, fastapi, etc.)..."
+if check_python_packages "$PYTHON"; then
+  echo " OK"
+  echo "[✓] All required Python packages verified."
+  # Save for next run (skip the whole selection next time)
+  mkdir -p "$LOG_DIR"
+  echo "$PYTHON" > "$SAVED_PYTHON_FILE"
+else
+  echo " FAILED"
+  MISSING=$(list_missing_packages "$PYTHON")
+  echo ""
+  echo "ERROR: Selected Python is missing packages: $MISSING"
+  echo "  This can happen if packages are partially installed."
+  echo "  Try: pip install fastapi uvicorn torch numpy scipy pandas matplotlib imageio pydantic-settings"
+  echo ""
+  exit 1
+fi
+
+# Check Electron binary
+ELECTRON="$SCRIPT_DIR/node_modules/electron/dist/electron"
+if [[ ! -x "$ELECTRON" ]]; then
+  echo ""
+  echo "  ┌───────────────────────────────────────────────────┐"
+  echo "  │  ERROR: Electron runtime not found.               │"
+  echo "  │                                                   │"
+  echo "  │  The application package appears to be incomplete │"
+  echo "  │  or corrupted. Please re-download / re-extract    │"
+  echo "  │  the OpenPMUT-Desktop.zip archive.                │"
+  echo "  └───────────────────────────────────────────────────┘"
+  echo ""
+  exit 1
+fi
+echo "[✓] Electron runtime found."
+
+# Check built files
+if [[ ! -f "$SCRIPT_DIR/dist-electron/main.js" ]] || [[ ! -f "$SCRIPT_DIR/dist-renderer/index.html" ]]; then
+  echo ""
+  echo "  ┌───────────────────────────────────────────────────┐"
+  echo "  │  ERROR: Application files not found.              │"
+  echo "  │                                                   │"
+  echo "  │  The application package appears to be incomplete │"
+  echo "  │  or corrupted. Please re-download / re-extract    │"
+  echo "  │  the OpenPMUT-Desktop.zip archive.                │"
+  echo "  └───────────────────────────────────────────────────┘"
+  echo ""
+  exit 1
+fi
+echo "[✓] Application files found."
+echo ""
+
+# ── Cleanup handler ──
+# Always kill backend when the window is closed, even if backend was pre-existing
+BACKEND_PID=""
+cleanup() {
+  echo ""
+  echo "[OpenPMUT] Shutting down..."
+  if [[ -n "$BACKEND_PID" ]]; then
+    kill "$BACKEND_PID" 2>/dev/null || true
+    sleep 1
+    kill -9 "$BACKEND_PID" 2>/dev/null || true
+  fi
+  # Also kill any uvicorn on our port (covers pre-existing backend case)
+  pkill -f "uvicorn app.main:app.*--port $BACKEND_PORT" 2>/dev/null || true
+  lsof -ti:"$BACKEND_PORT" 2>/dev/null | xargs kill -9 2>/dev/null || true
+  echo "[OpenPMUT] Goodbye. Run ./openpmut to launch again."
+}
+trap cleanup SIGINT SIGTERM EXIT
+
+# Prevent Ctrl+Z from suspending (leaves orphan processes)
+trap '' SIGTSTP
+
+# ── Always start a fresh backend (kill any leftover from previous session) ──
+if curl -sf "http://127.0.0.1:$BACKEND_PORT/health" >/dev/null 2>&1; then
+  echo "[→] Stopping leftover backend on port $BACKEND_PORT..."
+  pkill -f "uvicorn app.main:app.*--port $BACKEND_PORT" 2>/dev/null || true
+  lsof -ti:"$BACKEND_PORT" 2>/dev/null | xargs kill -9 2>/dev/null || true
+  sleep 1
+fi
+
+# ── Start Python backend ──
+echo "[→] Starting backend on port $BACKEND_PORT..."
+export OPENPMUT_DESKTOP=1
+export OPENPMUT_PORT=$BACKEND_PORT
+export OPENPMUT_PYTHON="$PYTHON"
+
+cd "$SCRIPT_DIR/python-backend"
+$PYTHON -m uvicorn app.main:app \
+  --host 127.0.0.1 \
+  --port "$BACKEND_PORT" \
+  --log-level warning >> "$LOG_FILE" 2>&1 &
+BACKEND_PID=$!
+cd "$SCRIPT_DIR"
+
+# Wait for backend
+echo -n "[→] Waiting for backend"
+for i in $(seq 1 60); do
+  if curl -sf "http://127.0.0.1:$BACKEND_PORT/health" >/dev/null 2>&1; then
+    echo ""
+    echo "[✓] Backend ready! (${i}s)"
+    break
+  fi
+  if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
+    echo ""
+    echo "ERROR: Backend crashed. Check: $LOG_FILE"
+    exit 1
+  fi
+  echo -n "."
+  sleep 1
+done
+
+if ! curl -sf "http://127.0.0.1:$BACKEND_PORT/health" >/dev/null 2>&1; then
+  echo ""
+  echo "ERROR: Backend did not start within 60s. Check: $LOG_FILE"
+  exit 1
+fi
+
+# ── Launch Electron ──
+echo "[→] Launching OpenPMUT window..."
+echo ""
+"$ELECTRON" \
+  --disable-gpu \
+  --no-sandbox \
+  "$SCRIPT_DIR/dist-electron/main.js" >> "$LOG_FILE" 2>&1
+
+echo "[OpenPMUT] Window closed. Run ./openpmut to launch again."
