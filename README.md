@@ -25,7 +25,11 @@ Visualize simulation results including frequency response, vibration modes, and 
 
 ## Quick Start
 
+To conduct similar studies, start by cloning this repository via:
+
 ```bash
+git clone https://github.com/Jasper123y/OpenPMUT.git
+cd OpenPMUT
 ./openpmut
 ```
 
