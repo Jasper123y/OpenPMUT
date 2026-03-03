@@ -16,7 +16,7 @@ Execute the ECM simulation pipeline with GPU acceleration and monitor progress i
 
 ![Running — Simulation in Progress](docs/Running.png)
 
-### Step 3 — View Output Results
+### Step 3 — View/Download Output Results
 Visualize simulation results including frequency response, vibration modes, and acoustic output.
 
 ![Output — Simulation Results](docs/Output.png)
