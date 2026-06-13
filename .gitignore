@@ -1,0 +1,16 @@
+node_modules/
+dist-electron/
+dist-renderer/
+release/
+*.AppImage
+*.deb
+*.rpm
+.env
+**/__pycache__/
+.python_path
+python-backend/uploads/*
+!python-backend/uploads/.gitkeep
+python-backend/output/disp/*
+python-backend/output/labels/*
+!python-backend/output/disp/.gitkeep
+!python-backend/output/labels/.gitkeep
