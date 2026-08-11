@@ -1,33 +1,33 @@
 #!/usr/bin/env bash
 #
-# build_protected_zip.sh — Build a distributable zip of OpenPMUT-Desktop V2.0.1
+# build_protected_zip.sh — Build a distributable zip of OpenPMUT-Desktop V2.0.2
 # with ECM and eigenmode_solver compiled to native .so binaries.
 #
 # This script:
-#   1. Copies OpenPMUT-Desktop-V2.0.1 → a temp staging dir
+#   1. Copies OpenPMUT-Desktop-V2.0.2 → a temp staging dir
 #   2. Builds frontend (React → dist-renderer/) if not already built
 #   3. Builds Electron (TS → dist-electron/) if not already built
 #   4. Runs seal_ecm.py to compile ECM + eigenmode_solver → .so
 #   5. Removes all dev-only / source files from the staging dir
-#   6. Creates OpenPMUT-Desktop-V2.0.1.zip
+#   6. Creates OpenPMUT-Desktop-V2.0.2.zip
 #
 # Usage:
 #   cd /path/to/pmut_user_platform
-#   bash OpenPMUT-Desktop-V2.0.1-Protected/build_protected_zip.sh
+#   bash OpenPMUT-Desktop-V2.0.2-Protected/build_protected_zip.sh
 #
 # Output:
-#   ./OpenPMUT-Desktop-V2.0.1.zip  (ready to distribute)
+#   ./OpenPMUT-Desktop-V2.0.2.zip  (ready to distribute)
 #
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-SOURCE_DIR="$PROJECT_ROOT/OpenPMUT-Desktop-V2.0.1"
+SOURCE_DIR="$SCRIPT_DIR"
 STAGE_DIR="/tmp/openpmut-v2-build-$$"
-OUTPUT_ZIP="$PROJECT_ROOT/OpenPMUT-Desktop-V2.0.1.zip"
+OUTPUT_ZIP="$PROJECT_ROOT/OpenPMUT-Desktop-V2.0.2.zip"
 
 echo "========================================"
-echo "  OpenPMUT V2.0.1 Protected Build"
+echo "  OpenPMUT V2.0.2 Protected Build"
 echo "========================================"
 echo "  Source:  $SOURCE_DIR"
 echo "  Stage:   $STAGE_DIR"
@@ -53,44 +53,44 @@ echo "  ✓ Builds OK"
 # ── Step 2: Stage a clean copy ──────────────────────────────────────
 echo ""
 echo "▶ Step 2: Staging clean copy..."
-mkdir -p "$STAGE_DIR/OpenPMUT-Desktop-V2.0.1"
+mkdir -p "$STAGE_DIR/OpenPMUT-Desktop-V2.0.2"
 
 # Copy only what ships in the zip (skip node_modules for now)
 for item in openpmut stop.sh README.md package.json \
             dist-electron dist-renderer python-backend assets; do
     if [[ -e "$SOURCE_DIR/$item" ]]; then
-        cp -a "$SOURCE_DIR/$item" "$STAGE_DIR/OpenPMUT-Desktop-V2.0.1/$item"
+        cp -a "$SOURCE_DIR/$item" "$STAGE_DIR/OpenPMUT-Desktop-V2.0.2/$item"
     fi
 done
 
 # Remove backup/old a06 files that should NOT ship
-rm -f "$STAGE_DIR/OpenPMUT-Desktop-V2.0.1/python-backend/ECM/a06_accoustic_impedance_matrix_multi_GPU_acceleration_backup.py"
-rm -f "$STAGE_DIR/OpenPMUT-Desktop-V2.0.1/python-backend/ECM/a06_accoustic_impedance_matrix_multi_GPU_acceleration_old.py"
+rm -f "$STAGE_DIR/OpenPMUT-Desktop-V2.0.2/python-backend/ECM/a06_accoustic_impedance_matrix_multi_GPU_acceleration_backup.py"
+rm -f "$STAGE_DIR/OpenPMUT-Desktop-V2.0.2/python-backend/ECM/a06_accoustic_impedance_matrix_multi_GPU_acceleration_old.py"
 
 # Copy ONLY the electron runtime from node_modules
 if [[ -d "$SOURCE_DIR/node_modules/electron" ]]; then
-    mkdir -p "$STAGE_DIR/OpenPMUT-Desktop-V2.0.1/node_modules"
-    cp -a "$SOURCE_DIR/node_modules/electron" "$STAGE_DIR/OpenPMUT-Desktop-V2.0.1/node_modules/electron"
+    mkdir -p "$STAGE_DIR/OpenPMUT-Desktop-V2.0.2/node_modules"
+    cp -a "$SOURCE_DIR/node_modules/electron" "$STAGE_DIR/OpenPMUT-Desktop-V2.0.2/node_modules/electron"
 fi
 echo "  ✓ Staged"
 
 # ── Step 3: Copy seal script & run it ───────────────────────────────
 echo ""
 echo "▶ Step 3: Sealing ECM + eigenmode_solver..."
-cp "$SCRIPT_DIR/seal_ecm.py" "$STAGE_DIR/OpenPMUT-Desktop-V2.0.1/seal_ecm.py"
-(cd "$STAGE_DIR/OpenPMUT-Desktop-V2.0.1" && python3 seal_ecm.py 2>&1)
+cp "$SCRIPT_DIR/seal_ecm.py" "$STAGE_DIR/OpenPMUT-Desktop-V2.0.2/seal_ecm.py"
+(cd "$STAGE_DIR/OpenPMUT-Desktop-V2.0.2" && python3 seal_ecm.py 2>&1)
 echo ""
 
 # ── Step 4: Remove seal script + dev artifacts from staging ─────────
 echo "▶ Step 4: Cleaning dev artifacts from staging..."
-rm -f  "$STAGE_DIR/OpenPMUT-Desktop-V2.0.1/seal_ecm.py"
-rm -f  "$STAGE_DIR/OpenPMUT-Desktop-V2.0.1/.python_path"
-rm -rf "$STAGE_DIR/OpenPMUT-Desktop-V2.0.1/python-backend/__pycache__"
-rm -rf "$STAGE_DIR/OpenPMUT-Desktop-V2.0.1/python-backend/app/__pycache__"
-rm -rf "$STAGE_DIR/OpenPMUT-Desktop-V2.0.1/python-backend/app/services/__pycache__"
-rm -rf "$STAGE_DIR/OpenPMUT-Desktop-V2.0.1/python-backend/app/routers/__pycache__"
-rm -rf "$STAGE_DIR/OpenPMUT-Desktop-V2.0.1/python-backend/app/schemas/__pycache__"
-rm -rf "$STAGE_DIR/OpenPMUT-Desktop-V2.0.1/python-backend/uploads"
+rm -f  "$STAGE_DIR/OpenPMUT-Desktop-V2.0.2/seal_ecm.py"
+rm -f  "$STAGE_DIR/OpenPMUT-Desktop-V2.0.2/.python_path"
+rm -rf "$STAGE_DIR/OpenPMUT-Desktop-V2.0.2/python-backend/__pycache__"
+rm -rf "$STAGE_DIR/OpenPMUT-Desktop-V2.0.2/python-backend/app/__pycache__"
+rm -rf "$STAGE_DIR/OpenPMUT-Desktop-V2.0.2/python-backend/app/services/__pycache__"
+rm -rf "$STAGE_DIR/OpenPMUT-Desktop-V2.0.2/python-backend/app/routers/__pycache__"
+rm -rf "$STAGE_DIR/OpenPMUT-Desktop-V2.0.2/python-backend/app/schemas/__pycache__"
+rm -rf "$STAGE_DIR/OpenPMUT-Desktop-V2.0.2/python-backend/uploads"
 # Remove any leftover .pyc
 find "$STAGE_DIR" -name "*.pyc" -delete
 find "$STAGE_DIR" -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
@@ -99,10 +99,10 @@ echo "  ✓ Clean"
 # ── Step 5: Set permissions ─────────────────────────────────────────
 echo ""
 echo "▶ Step 5: Setting permissions..."
-chmod +x "$STAGE_DIR/OpenPMUT-Desktop-V2.0.1/openpmut"
-chmod +x "$STAGE_DIR/OpenPMUT-Desktop-V2.0.1/stop.sh"
-if [[ -f "$STAGE_DIR/OpenPMUT-Desktop-V2.0.1/node_modules/electron/dist/electron" ]]; then
-    chmod +x "$STAGE_DIR/OpenPMUT-Desktop-V2.0.1/node_modules/electron/dist/electron"
+chmod +x "$STAGE_DIR/OpenPMUT-Desktop-V2.0.2/openpmut"
+chmod +x "$STAGE_DIR/OpenPMUT-Desktop-V2.0.2/stop.sh"
+if [[ -f "$STAGE_DIR/OpenPMUT-Desktop-V2.0.2/node_modules/electron/dist/electron" ]]; then
+    chmod +x "$STAGE_DIR/OpenPMUT-Desktop-V2.0.2/node_modules/electron/dist/electron"
 fi
 echo "  ✓ Permissions set"
 
@@ -110,7 +110,7 @@ echo "  ✓ Permissions set"
 echo ""
 echo "▶ Step 6: Creating zip..."
 rm -f "$OUTPUT_ZIP"
-(cd "$STAGE_DIR" && zip -r "$OUTPUT_ZIP" OpenPMUT-Desktop-V2.0.1/ --symlinks -q)
+(cd "$STAGE_DIR" && zip -r "$OUTPUT_ZIP" OpenPMUT-Desktop-V2.0.2/ --symlinks -q)
 ZIP_SIZE=$(du -sh "$OUTPUT_ZIP" | cut -f1)
 echo "  ✓ $OUTPUT_ZIP ($ZIP_SIZE)"
 
@@ -129,6 +129,6 @@ echo "  seal_ecm.py:      $([ "$SEAL_SCRIPT" -eq 0 ] && echo 'NOT included ✓' 
 
 echo ""
 echo "========================================"
-echo "  BUILD COMPLETE — V2.0.1"
+echo "  BUILD COMPLETE — V2.0.2"
 echo "  $OUTPUT_ZIP"
 echo "========================================"

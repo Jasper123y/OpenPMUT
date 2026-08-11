@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════════════════
-#  OpenPMUT Desktop — Launcher  (V1.0)
+#  OpenPMUT Desktop — Launcher  (V2.0.2)
 #
 #  Usage:
 #    ./openpmut                          # Auto-detect / setup Python
@@ -16,7 +16,7 @@
 # ═══════════════════════════════════════════════════════════════════
 set -euo pipefail
 
-VERSION="1.0"
+VERSION="2.0.2"
 
 # Resolve symlinks so SCRIPT_DIR is always the real app directory
 SOURCE="${BASH_SOURCE[0]}"
@@ -729,31 +729,90 @@ else
   exit 1
 fi
 
-# Check Electron binary
-ELECTRON="$SCRIPT_DIR/node_modules/electron/dist/electron"
-if [[ ! -x "$ELECTRON" ]]; then
+# ── Electron runtime ────────────────────────────────────────────────
+# The release zip bundles the runtime at node_modules/electron/dist.
+# GitHub-source downloads have no node_modules, so fetch it on first run.
+ELECTRON_VERSION="28.3.3"
+if [[ -f "$SCRIPT_DIR/node_modules/electron/package.json" ]]; then
+  ELECTRON_VERSION=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([0-9][0-9.]*\)".*/\1/p' \
+    "$SCRIPT_DIR/node_modules/electron/package.json" | head -1)
+  [[ -z "$ELECTRON_VERSION" ]] && ELECTRON_VERSION="28.3.3"
+fi
+
+resolve_electron() {
+  local c
+  for c in "$SCRIPT_DIR/node_modules/electron/dist/electron" \
+           "$SCRIPT_DIR/electron/dist/electron"; do
+    if [[ -x "$c" ]]; then
+      echo "$c"
+      return 0
+    fi
+  done
+  if command -v electron >/dev/null 2>&1; then
+    echo "$(command -v electron)"
+    return 0
+  fi
+  return 1
+}
+
+ELECTRON="$(resolve_electron || true)"
+if [[ -z "$ELECTRON" ]]; then
   echo ""
   echo "  ┌───────────────────────────────────────────────────┐"
-  echo "  │  ERROR: Electron runtime not found.               │"
+  echo "  │  Electron runtime not found.                     │"
   echo "  │                                                   │"
-  echo "  │  The application package appears to be incomplete │"
-  echo "  │  or corrupted. Please re-download / re-extract    │"
-  echo "  │  the OpenPMUT-Desktop.zip archive.                │"
+  echo "  │  The release zip bundles it, but source downloads │"
+  echo "  │  do not. This launcher can download it for you.   │"
   echo "  └───────────────────────────────────────────────────┘"
   echo ""
-  exit 1
+  read -r -p "  Download Electron v${ELECTRON_VERSION} (~170 MB)? [Y/n]: " answer
+  if [[ "${answer,,}" =~ ^(n|no)$ ]]; then
+    echo "  Aborting. Use the release zip to get the bundled runtime."
+    exit 1
+  fi
+
+  ELECTRON_URL="https://github.com/electron/electron/releases/download/v${ELECTRON_VERSION}/electron-v${ELECTRON_VERSION}-linux-x64.zip"
+  ELECTRON_DIR="$SCRIPT_DIR/node_modules/electron"
+  TMP_ZIP="${TMPDIR:-/tmp}/openpmut-electron-${ELECTRON_VERSION}.zip"
+  echo "  [→] Downloading Electron v${ELECTRON_VERSION} ..."
+  if command -v curl >/dev/null 2>&1; then
+    curl -fL --progress-bar -o "$TMP_ZIP" "$ELECTRON_URL" || { echo "  ERROR: download failed. Check network access."; exit 1; }
+  elif command -v wget >/dev/null 2>&1; then
+    wget -q --show-progress -O "$TMP_ZIP" "$ELECTRON_URL" || { echo "  ERROR: download failed. Check network access."; exit 1; }
+  else
+    echo "  ERROR: neither curl nor wget found. Install one or use the release zip."
+    exit 1
+  fi
+
+  mkdir -p "$ELECTRON_DIR/dist"
+  if command -v unzip >/dev/null 2>&1; then
+    unzip -q -o "$TMP_ZIP" -d "$ELECTRON_DIR/dist" || { echo "  ERROR: extraction failed."; exit 1; }
+  elif [[ -n "${PYTHON:-}" ]]; then
+    "$PYTHON" -m zipfile -e "$TMP_ZIP" "$ELECTRON_DIR/dist" || { echo "  ERROR: extraction failed."; exit 1; }
+  else
+    echo "  ERROR: unzip not found. Install it or use the release zip."
+    exit 1
+  fi
+  chmod +x "$ELECTRON_DIR/dist/electron" "$ELECTRON_DIR/dist/chrome-sandbox" 2>/dev/null || true
+  rm -f "$TMP_ZIP"
+  ELECTRON="$ELECTRON_DIR/dist/electron"
+  if [[ ! -x "$ELECTRON" ]]; then
+    echo "  ERROR: Electron runtime could not be installed."
+    exit 1
+  fi
+  echo "  [✓] Electron runtime installed."
 fi
-echo "[✓] Electron runtime found."
+echo "[✓] Electron runtime found: $ELECTRON"
 
 # Check built files
 if [[ ! -f "$SCRIPT_DIR/dist-electron/main.js" ]] || [[ ! -f "$SCRIPT_DIR/dist-renderer/index.html" ]]; then
   echo ""
   echo "  ┌───────────────────────────────────────────────────┐"
-  echo "  │  ERROR: Application files not found.              │"
+  echo "  │  ERROR: Application files not found.             │"
   echo "  │                                                   │"
-  echo "  │  The application package appears to be incomplete │"
-  echo "  │  or corrupted. Please re-download / re-extract    │"
-  echo "  │  the OpenPMUT-Desktop.zip archive.                │"
+  echo "  │  dist-electron/main.js or dist-renderer/index.html │"
+  echo "  │  is missing. Re-download the release zip, or       │"
+  echo "  │  rebuild with:  npm install && npm run build       │"
   echo "  └───────────────────────────────────────────────────┘"
   echo ""
   exit 1

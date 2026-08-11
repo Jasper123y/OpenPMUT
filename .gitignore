@@ -2,8 +2,6 @@ SOP-MST-PMT-OpenPMUT.pdf
 SOP-MST-PMT-PMUT_array_Sim .docx
 SOP-MST-PMT-PMUT_array_Sim .pdf
 node_modules/
-dist-electron/
-dist-renderer/
 release/
 *.AppImage
 *.deb

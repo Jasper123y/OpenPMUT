@@ -206,7 +206,7 @@ def strip_non_py_images(folder: Path):
 def seal():
     """Main sealing process"""
     print("=" * 70)
-    print("  OpenPMUT V2.0.1 ECM Source Code Protection — Cython Compilation")
+    print("  OpenPMUT V2.0.2 ECM Source Code Protection — Cython Compilation")
     print("=" * 70)
 
     # Pre-check: Cython available?

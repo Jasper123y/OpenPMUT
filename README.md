@@ -1,4 +1,4 @@
-# OpenPMUT Desktop V2.0.1
+# OpenPMUT Desktop V2.0.2
 
 ## Tutorial Video
 
@@ -7,6 +7,17 @@ https://youtu.be/X6-YhKmTe_k
 ---
 
 A standalone desktop application for PMUT (Piezoelectric Micromachined Ultrasonic Transducer) array simulation using Equivalent Circuit Modelling (ECM) with **multi-GPU acceleration** and an **optimized eigenmode solver**.
+
+## What's New in V2.0.2
+
+**Fix: works from a fresh download.** Previously, the app could only run from the
+full release zip because the Electron runtime and the built app files were not
+part of the GitHub source package. Now:
+
+- The built app files (`dist-electron/`, `dist-renderer/`) ship in the repository,
+  so a GitHub download is immediately runnable.
+- On first run, `./openpmut` **automatically downloads the Electron runtime**
+  (~170 MB, one-time) if it is not already bundled — no Node.js/npm needed.
 
 ## What's New in V2.0.1
 
@@ -28,12 +39,23 @@ All optimizations produce **bit-identical results** to V1.0.0 (verified across 1
 
 ## Quick Start
 
+**Option 1 — Release zip (recommended):** download `OpenPMUT-Desktop-V2.0.2.zip`,
+extract it, and run:
+
 ```bash
-cd OpenPMUT-Desktop
+cd OpenPMUT-Desktop-V2.0.2
 ./openpmut
 ```
 
-That's it! On **first run**, `./openpmut` will guide you through setting up a Python environment:
+The Electron runtime is already bundled in the zip.
+
+**Option 2 — GitHub source download:** download the repository zip (or clone it),
+extract, and run `./openpmut` in the folder. On **first run** it will:
+
+1. Guide you through setting up a Python environment
+2. Download the Electron runtime automatically (requires internet, one-time)
+
+Then it launches normally. On **first run** `./openpmut` will guide you through setting up a Python environment:
 - If you already have conda activated with the right packages → it just works
 - If you have conda but no suitable env → it offers to create one (`openpmut`)
 - If conda is not loaded → it detects Environment Modules (`module load`) or common paths
@@ -53,7 +75,8 @@ Closing the window kills the backend and exits cleanly — just run `./openpmut`
 | **NVIDIA GPU + CUDA** | Required for simulation |
 | **X11 display** | `echo $DISPLAY` should show `:0` or similar |
 
-**No Node.js/npm required** — the Electron runtime is bundled in the package.
+**No Node.js/npm required** — the Electron runtime is bundled in the release zip,
+or downloaded automatically on first run from a source download.
 Python and conda will be set up automatically by `./openpmut` if not already available.
 
 ---

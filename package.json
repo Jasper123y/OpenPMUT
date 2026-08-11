@@ -1,6 +1,6 @@
 {
   "name": "openpmut-desktop",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "OpenPMUT — Desktop Application for PMUT Simulation (V2: Multi-GPU + Optimized Eigenmode Solver)",
   "main": "dist-electron/main.js",
   "author": "OpenPMUT Team",
