@@ -29,7 +29,6 @@ All optimizations produce **bit-identical results** to V1.0.0 (verified across 1
 ## Quick Start
 
 ```bash
-unzip OpenPMUT-Desktop.zip
 cd OpenPMUT-Desktop
 ./openpmut
 ```
