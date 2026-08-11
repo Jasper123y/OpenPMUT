@@ -1,0 +1,21 @@
+SOP-MST-PMT-OpenPMUT.pdf
+SOP-MST-PMT-PMUT_array_Sim .docx
+SOP-MST-PMT-PMUT_array_Sim .pdf
+node_modules/
+dist-electron/
+dist-renderer/
+release/
+*.AppImage
+*.deb
+*.rpm
+.env
+**/__pycache__/
+.python_path
+python-backend/uploads/*
+!python-backend/uploads/.gitkeep
+python-backend/output/disp/*
+python-backend/output/labels/*
+!python-backend/output/disp/.gitkeep
+!python-backend/output/labels/.gitkeep
+
+python-backend/ECM/saving_folder/
