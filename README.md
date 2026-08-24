@@ -261,3 +261,11 @@ cd OpenPMUT-Desktop
 | Window close didn't kill backend | Run `./stop.sh` to clean up |
 
 Logs: `~/.openpmut/launch.log`
+
+
+
+## Acknowledgements
+
+This software was developed as part of the **Listen2Future (Listen2F)** project. 
+
+The Listen2Future project has received funding from the European Union under Grant Agreement No. 101096884. The project is further financially supported by national funding authorities, including the Austrian Research Promotion Agency (FFG).
